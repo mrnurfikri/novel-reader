@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Novel Reader</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <div class="nav-brand"><i class="ti ti-book-2"></i><span>Novel Reader</span></div>
+      <div class="nav-tabs">
+        <button class="nav-tab active" data-page="reader"><i class="ti ti-microphone"></i><span>Baca</span></button>
+        <button class="nav-tab" data-page="library"><i class="ti ti-books"></i><span>Perpustakaan</span></button>
+      </div>
+      <div class="sync-status" id="syncStatus"><i class="ti ti-cloud-check"></i><span>Tersinkron</span></div>
+    </div>
+  </nav>
+
+  <!-- READER PAGE -->
+  <div class="page active" id="page-reader">
+    <div class="page-inner">
+      <header>
+        <h1>Baca &amp; Terjemahkan</h1>
+        <p>Bacakan novel bahasa Inggris, terjemahan muncul otomatis</p>
+      </header>
+
+      <div class="browser-warn" id="browserWarn">
+        <i class="ti ti-alert-triangle"></i>
+        Gunakan <strong>Google Chrome</strong> atau <strong>Microsoft Edge</strong> untuk fitur mikrofon.
+      </div>
+
+      <!-- Book / Chapter selectors -->
+      <div class="meta-row">
+        <div class="card meta-input">
+          <i class="ti ti-book-2"></i>
+          <input type="text" id="bookTitleInput" placeholder="Judul buku..." autocomplete="off" />
+        </div>
+        <div class="card meta-input">
+          <i class="ti ti-list"></i>
+          <input type="text" id="chapterInput" placeholder="Nama bab (contoh: Bab 1)..." autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <div class="lang-sel">
+          <label for="targetLang"><i class="ti ti-language"></i></label>
+          <select id="targetLang">
+            <option value="id">Bahasa Indonesia</option>
+            <option value="ms">Bahasa Melayu</option>
+            <option value="jv">Bahasa Jawa</option>
+            <option value="su">Bahasa Sunda</option>
+            <option value="zh-CN">Mandarin</option>
+            <option value="ar">Arab</option>
+          </select>
+        </div>
+        <div class="save-row">
+          <span class="save-toast" id="saveToast"><i class="ti ti-check"></i> Tersimpan!</span>
+          <button class="btn btn-save" id="saveBtn"><i class="ti ti-device-floppy"></i> Simpan</button>
+        </div>
+      </div>
+
+      <!-- Mic -->
+      <div class="mic-area">
+        <button class="mic-btn" id="micBtn" aria-label="Mulai merekam">
+          <div class="pulse-ring"></div>
+          <i class="ti ti-microphone"></i>
+        </button>
+        <span class="status" id="statusText">Tekan untuk mulai membaca</span>
+      </div>
+
+      <!-- Punctuation toolbar -->
+      <div class="punct-toolbar">
+        <span class="punct-label">Tanda baca:</span>
+        <button class="punct-btn" data-insert=", "><i class="ti ti-comma"></i> Koma</button>
+        <button class="punct-btn" data-insert=". "><i class="ti ti-point"></i> Titik</button>
+        <button class="punct-btn" data-insert="! "><i class="ti ti-exclamation-mark"></i> Seru</button>
+        <button class="punct-btn" data-insert="? "><i class="ti ti-question-mark"></i> Tanya</button>
+        <button class="punct-btn" data-insert=": "><i class="ti ti-colon"></i> Titik dua</button>
+        <button class="punct-btn" data-insert="&ldquo;"><i class="ti ti-quote"></i> &ldquo;</button>
+        <button class="punct-btn" data-insert="&rdquo; "><i class="ti ti-quote"></i> &rdquo;</button>
+        <button class="punct-btn" data-insert="\n\n" id="btnParagraph"><i class="ti ti-pilcrow"></i> Paragraf</button>
+      </div>
+      <div class="punct-hint">💡 Ucapkan: <em>"comma"</em>, <em>"period"</em>, <em>"exclamation"</em>, <em>"question mark"</em>, <em>"quote"</em>, <em>"close quote"</em>, <em>"new paragraph"</em> · Diam 3 detik → titik otomatis</div>
+
+      <!-- Panels -->
+      <div class="panels">
+        <div class="panel panel-en">
+          <div class="panel-label"><i class="ti ti-book"></i> Teks Inggris</div>
+          <div class="panel-text placeholder" id="originalText">Teks yang kamu baca akan muncul di sini...</div>
+        </div>
+        <div class="panel panel-id">
+          <div class="panel-label"><i class="ti ti-language"></i> Terjemahan</div>
+          <div class="loading-bar" id="loadingBar"></div>
+          <div class="panel-text placeholder" id="translatedText">Terjemahan akan muncul di sini...</div>
+          <button class="tts-btn" id="ttsBtn"><i class="ti ti-volume"></i> Putar</button>
+        </div>
+      </div>
+
+      <div class="row-actions">
+        <button class="btn-ghost" id="clearBtn"><i class="ti ti-refresh"></i> Hapus &amp; mulai ulang</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIBRARY PAGE -->
+  <div class="page" id="page-library">
+    <div class="page-inner">
+      <div class="lib-topbar">
+        <div>
+          <h2>Perpustakaan</h2>
+          <span class="lib-count" id="libCount">Memuat...</span>
+        </div>
+        <div class="search-box">
+          <i class="ti ti-search"></i>
+          <input type="text" id="searchInput" placeholder="Cari judul, bab, atau teks..." />
+        </div>
+      </div>
+      <div id="libraryContent"></div>
+    </div>
+  </div>
+
+  <!-- EDIT MODAL -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3><i class="ti ti-edit"></i> Edit Catatan</h3>
+        <button class="modal-close" id="modalClose"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body">
+        <label class="modal-label">Teks Inggris</label>
+        <textarea class="modal-textarea" id="editOriginal" rows="5"></textarea>
+        <label class="modal-label">Terjemahan</label>
+        <textarea class="modal-textarea" id="editTranslated" rows="5"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" id="modalCancel">Batal</button>
+        <button class="btn btn-save" id="modalSave"><i class="ti ti-check"></i> Simpan Perubahan</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/firebase.js"></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
