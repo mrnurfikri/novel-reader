@@ -25,6 +25,25 @@ const modalClose     = document.getElementById("modalClose");
 const modalCancel    = document.getElementById("modalCancel");
 const modalSave      = document.getElementById("modalSave");
 
+// ── Helpers (defined early, used throughout) ─────────────────
+function escHtml(str) {
+  return String(str || "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function highlight(text, q) {
+  if (!q) return escHtml(text);
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escHtml(text).replace(new RegExp(`(${esc})`, "gi"), '<mark class="highlight">$1</mark>');
+}
+function groupBy(arr, key) {
+  return arr.reduce((map, item) => {
+    const k = item[key] || "Tanpa " + key;
+    if (!map[k]) map[k] = [];
+    map[k].push(item); return map;
+  }, {});
+}
+
 // ── Nav ─────────────────────────────────────────────────────
 document.querySelectorAll(".nav-tab").forEach(tab => {
   tab.addEventListener("click", () => {
@@ -50,17 +69,21 @@ let silenceTimer = null;
 
 // Punctuation voice commands
 const PUNCT_COMMANDS = {
-  "comma"        : ", ",
-  "period"       : ". ",
-  "full stop"    : ". ",
-  "exclamation"  : "! ",
+  "comma"           : ", ",
+  "period"          : ". ",
+  "full stop"       : ". ",
+  "exclamation"     : "! ",
   "exclamation mark": "! ",
-  "question mark": "? ",
-  "colon"        : ": ",
-  "semicolon"    : "; ",
-  "new paragraph": "\n\n",
-  "new line"     : "\n\n",
-  "paragraph"    : "\n\n",
+  "question mark"   : "? ",
+  "colon"           : ": ",
+  "semicolon"       : "; ",
+  "quote"           : "\u201c",
+  "open quote"      : "\u201c",
+  "close quote"     : "\u201d ",
+  "end quote"       : "\u201d ",
+  "new paragraph"   : "\n\n",
+  "new line"        : "\n\n",
+  "paragraph"       : "\n\n",
 };
 
 function applyPunctCommand(transcript) {
@@ -72,9 +95,17 @@ function applyPunctCommand(transcript) {
 }
 
 function renderOriginal() {
-  originalText.textContent = accumulated;
-  originalText.classList.toggle("placeholder", !accumulated);
-  if (!accumulated) originalText.textContent = "Teks yang kamu baca akan muncul di sini...";
+  if (!accumulated) {
+    originalText.innerHTML = "Teks yang kamu baca akan muncul di sini...";
+    originalText.classList.add("placeholder");
+    return;
+  }
+  originalText.classList.remove("placeholder");
+  // Split on double newline → real <p> paragraphs
+  const paragraphs = accumulated.split(/\n\n+/);
+  originalText.innerHTML = paragraphs
+    .map(p => `<p>${escHtml(p.trim())}</p>`)
+    .join("");
 }
 
 // ── Translate ────────────────────────────────────────────────
@@ -94,6 +125,8 @@ async function translate(text) {
     translatedText.textContent = result;
     translatedText.classList.remove("placeholder");
     ttsBtn.classList.add("visible");
+    // Auto-speak translation
+    autoSpeak(result);
   } catch {
     translatedText.textContent = "Terjemahan gagal. Cek koneksi internet.";
     translatedText.classList.add("placeholder");
@@ -107,13 +140,13 @@ function scheduleTranslate() {
   transTimeout = setTimeout(() => translate(accumulated.trim()), 1000);
 }
 
-// ── Silence detection (auto comma after 3s pause) ───────────
+// ── Silence detection (auto period after 3s pause) ──────────
 function resetSilenceTimer() {
   clearTimeout(silenceTimer);
   silenceTimer = setTimeout(() => {
-    // Only add comma if text doesn't already end with punctuation
-    if (accumulated && !/[.,!?:;\n]$/.test(accumulated.trim())) {
-      accumulated = accumulated.trimEnd() + ", ";
+    // Add period if text doesn't already end with punctuation
+    if (accumulated && !/[.,!?:;\n\u201d]$/.test(accumulated.trim())) {
+      accumulated = accumulated.trimEnd() + ". ";
       renderOriginal();
       scheduleTranslate();
     }
@@ -186,19 +219,30 @@ document.querySelectorAll(".punct-btn").forEach(btn => {
 
 // ── TTS ─────────────────────────────────────────────────────
 const langMap = { id:"id-ID", ms:"ms-MY", jv:"jv-ID", su:"su-ID", "zh-CN":"zh-CN", ar:"ar-SA" };
-ttsBtn.addEventListener("click", () => {
-  if (!lastTranslated) return;
-  if (isSpeaking) {
-    speechSynthesis.cancel(); isSpeaking = false;
-    ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar'; return;
-  }
-  const utt = new SpeechSynthesisUtterance(lastTranslated);
+
+function speakText(text) {
+  if (!text) return;
+  const utt = new SpeechSynthesisUtterance(text);
   utt.lang = langMap[targetLang.value] || "id-ID";
   isSpeaking = true;
   ttsBtn.innerHTML = '<i class="ti ti-player-pause"></i> Stop';
   utt.onend = () => { isSpeaking = false; ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar'; };
   speechSynthesis.cancel();
   speechSynthesis.speak(utt);
+}
+
+// Auto-speak: only fire when mic is active (don't interrupt manual edits)
+function autoSpeak(text) {
+  if (isRecording) speakText(text);
+}
+
+ttsBtn.addEventListener("click", () => {
+  if (!lastTranslated) return;
+  if (isSpeaking) {
+    speechSynthesis.cancel(); isSpeaking = false;
+    ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar'; return;
+  }
+  speakText(lastTranslated);
 });
 
 // ── Clear ────────────────────────────────────────────────────
@@ -242,24 +286,7 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
-// ── Helpers ──────────────────────────────────────────────────
-function escHtml(str) {
-  return String(str || "")
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-function highlight(text, q) {
-  if (!q) return escHtml(text);
-  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return escHtml(text).replace(new RegExp(`(${esc})`, "gi"), '<mark class="highlight">$1</mark>');
-}
-function groupBy(arr, key) {
-  return arr.reduce((map, item) => {
-    const k = item[key] || "Tanpa " + key;
-    if (!map[k]) map[k] = [];
-    map[k].push(item); return map;
-  }, {});
-}
+
 
 // ── Edit Modal ───────────────────────────────────────────────
 let editingId = null;
