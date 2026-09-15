@@ -111,6 +111,8 @@ header p { font-size: 14px; color: var(--text-secondary); }
 .panel-label i { font-size: 13px; }
 .panel-text { font-size: 15px; line-height: 1.8; flex: 1; white-space: pre-wrap; }
 .panel-text.placeholder { color: var(--text-muted); font-size: 14px; }
+.panel-text p { margin-bottom: 0.75em; }
+.panel-text p:last-child { margin-bottom: 0; }
 .loading-bar { height: 2px; background: var(--border); border-radius: 1px; margin-bottom: 10px; overflow: hidden; display: none; }
 .loading-bar.active { display: block; }
 .loading-bar::after { content: ''; display: block; height: 100%; width: 40%; background: var(--green); border-radius: 1px; animation: slide 1s ease-in-out infinite alternate; }
