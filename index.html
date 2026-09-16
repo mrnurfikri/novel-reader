@@ -35,7 +35,7 @@
         Gunakan <strong>Google Chrome</strong> atau <strong>Microsoft Edge</strong> untuk fitur mikrofon.
       </div>
 
-      <!-- Book / Chapter selectors -->
+      <!-- Book / Chapter -->
       <div class="meta-row">
         <div class="card meta-input">
           <i class="ti ti-book-2"></i>
@@ -47,6 +47,7 @@
         </div>
       </div>
 
+      <!-- Controls -->
       <div class="controls-row">
         <div class="lang-sel">
           <label for="targetLang"><i class="ti ti-language"></i></label>
@@ -63,6 +64,31 @@
           <span class="save-toast" id="saveToast"><i class="ti ti-check"></i> Tersimpan!</span>
           <button class="btn btn-save" id="saveBtn"><i class="ti ti-device-floppy"></i> Simpan</button>
         </div>
+      </div>
+
+      <!-- Toggle switches -->
+      <div class="toggles-bar">
+        <label class="toggle-item">
+          <span class="toggle-label"><i class="ti ti-volume"></i> Auto baca terjemahan</span>
+          <div class="toggle-switch">
+            <input type="checkbox" id="toggleTTS" checked />
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
+        <label class="toggle-item">
+          <span class="toggle-label"><i class="ti ti-device-floppy"></i> Auto simpan per kalimat</span>
+          <div class="toggle-switch">
+            <input type="checkbox" id="toggleAutoSave" checked />
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
+        <label class="toggle-item">
+          <span class="toggle-label"><i class="ti ti-refresh"></i> Auto reset per kalimat</span>
+          <div class="toggle-switch">
+            <input type="checkbox" id="toggleAutoReset" checked />
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
       </div>
 
       <!-- Mic -->
@@ -82,17 +108,21 @@
         <button class="punct-btn" data-insert="! "><i class="ti ti-exclamation-mark"></i> Seru</button>
         <button class="punct-btn" data-insert="? "><i class="ti ti-question-mark"></i> Tanya</button>
         <button class="punct-btn" data-insert=": "><i class="ti ti-colon"></i> Titik dua</button>
-        <button class="punct-btn" data-insert="&ldquo;"><i class="ti ti-quote"></i> &ldquo;</button>
-        <button class="punct-btn" data-insert="&rdquo; "><i class="ti ti-quote"></i> &rdquo;</button>
-        <button class="punct-btn" data-insert="\n\n" id="btnParagraph"><i class="ti ti-pilcrow"></i> Paragraf</button>
+        <button class="punct-btn" data-insert="\u201c"><i class="ti ti-quote"></i> &ldquo;</button>
+        <button class="punct-btn" data-insert="\u201d "><i class="ti ti-quote"></i> &rdquo;</button>
+        <button class="punct-btn" id="btnParagraph"><i class="ti ti-pilcrow"></i> Paragraf baru</button>
       </div>
       <div class="punct-hint">💡 Ucapkan: <em>"comma"</em>, <em>"period"</em>, <em>"exclamation"</em>, <em>"question mark"</em>, <em>"quote"</em>, <em>"close quote"</em>, <em>"new paragraph"</em> · Diam 3 detik → titik otomatis</div>
 
       <!-- Panels -->
       <div class="panels">
         <div class="panel panel-en">
-          <div class="panel-label"><i class="ti ti-book"></i> Teks Inggris</div>
-          <div class="panel-text placeholder" id="originalText">Teks yang kamu baca akan muncul di sini...</div>
+          <div class="panel-label">
+            <span><i class="ti ti-book"></i> Teks Inggris</span>
+            <span class="panel-edit-hint">klik teks untuk edit</span>
+          </div>
+          <!-- contenteditable so user can click & edit directly -->
+          <div class="panel-text placeholder" id="originalText" contenteditable="true" spellcheck="false">Teks yang kamu baca akan muncul di sini...</div>
         </div>
         <div class="panel panel-id">
           <div class="panel-label"><i class="ti ti-language"></i> Terjemahan</div>
@@ -125,7 +155,7 @@
     </div>
   </div>
 
-  <!-- EDIT MODAL -->
+  <!-- EDIT MODAL (library) -->
   <div class="modal-overlay" id="editModal">
     <div class="modal">
       <div class="modal-header">
