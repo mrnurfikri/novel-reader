@@ -44,24 +44,44 @@ const modalClose     = document.getElementById("modalClose");
 const modalCancel    = document.getElementById("modalCancel");
 const modalSave      = document.getElementById("modalSave");
 const btnParagraph   = document.getElementById("btnParagraph");
+const settingsBtn    = document.getElementById("settingsBtn");
+const settingsPanel  = document.getElementById("settingsPanel");
 
-// ── Toggles ───────────────────────────────────────────────────
+// ── Settings ──────────────────────────────────────────────────
 const toggleTTS       = document.getElementById("toggleTTS");
 const toggleAutoSave  = document.getElementById("toggleAutoSave");
 const toggleAutoReset = document.getElementById("toggleAutoReset");
+const ttsDelay        = document.getElementById("ttsDelay");
 
-// Persist toggle states
-function loadToggles() {
+// Load saved settings
+function loadSettings() {
   ["toggleTTS","toggleAutoSave","toggleAutoReset"].forEach(id => {
-    const saved = localStorage.getItem(id);
-    if (saved !== null) document.getElementById(id).checked = saved === "true";
+    const v = localStorage.getItem(id);
+    if (v !== null) document.getElementById(id).checked = v === "true";
   });
+  const delay = localStorage.getItem("ttsDelay");
+  if (delay !== null) ttsDelay.value = delay;
 }
-function saveToggle(id, val) { localStorage.setItem(id, val); }
-[toggleTTS, toggleAutoSave, toggleAutoReset].forEach(el => {
-  el.addEventListener("change", () => saveToggle(el.id, el.checked));
+function saveSetting(key, val) { localStorage.setItem(key, val); }
+
+[toggleTTS, toggleAutoSave, toggleAutoReset].forEach(el =>
+  el.addEventListener("change", () => saveSetting(el.id, el.checked))
+);
+ttsDelay.addEventListener("change", () => saveSetting("ttsDelay", ttsDelay.value));
+loadSettings();
+
+// Settings panel toggle
+settingsBtn.addEventListener("click", () => {
+  const open = settingsPanel.classList.toggle("open");
+  settingsBtn.classList.toggle("active", open);
 });
-loadToggles();
+// Close panel when clicking outside
+document.addEventListener("click", e => {
+  if (!settingsPanel.contains(e.target) && !settingsBtn.contains(e.target)) {
+    settingsPanel.classList.remove("open");
+    settingsBtn.classList.remove("active");
+  }
+});
 
 // ── Nav ───────────────────────────────────────────────────────
 document.querySelectorAll(".nav-tab").forEach(tab => {
@@ -74,23 +94,23 @@ document.querySelectorAll(".nav-tab").forEach(tab => {
   });
 });
 
-// ── Speech Recognition ────────────────────────────────────────
+// ── Speech ────────────────────────────────────────────────────
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SR) browserWarn.style.display = "flex";
 
-let recognition  = null;
-let isRecording  = false;
-let accumulated  = "";
-let transTimeout = null;
-let isSpeaking   = false;
-let lastTranslated = "";
-let silenceTimer = null;
+let recognition       = null;
+let isRecording       = false;
+let accumulated       = "";
+let transTimeout      = null;
+let isSpeaking        = false;
+let lastTranslated    = "";
+let silenceTimer      = null;
 let isEditingOriginal = false;
+let ttsDelayTimer     = null;
+let sentenceQueue     = false; // prevent double-trigger
 
-// Sentence-ending punctuation detection
 const SENTENCE_END = /[.!?。]\s*$/;
 
-// Voice punctuation commands
 const PUNCT_COMMANDS = {
   "comma"           : ", ",
   "period"          : ". ",
@@ -109,46 +129,38 @@ const PUNCT_COMMANDS = {
   "paragraph"       : "¶NEW¶",
 };
 
-function applyPunctCommand(transcript) {
-  const lower = transcript.trim().toLowerCase();
-  for (const [cmd, symbol] of Object.entries(PUNCT_COMMANDS)) {
-    if (lower === cmd) return { isPunct: true, symbol };
+function applyPunctCommand(t) {
+  const lower = t.trim().toLowerCase();
+  for (const [cmd, sym] of Object.entries(PUNCT_COMMANDS)) {
+    if (lower === cmd) return { isPunct: true, symbol: sym };
   }
   return { isPunct: false };
 }
 
-// ── Render original text as real paragraphs ───────────────────
+// ── Render ────────────────────────────────────────────────────
 function renderOriginal() {
-  if (isEditingOriginal) return; // don't overwrite while user is typing
+  if (isEditingOriginal) return;
   if (!accumulated) {
     originalText.innerHTML = "Teks yang kamu baca akan muncul di sini...";
     originalText.classList.add("placeholder");
     return;
   }
   originalText.classList.remove("placeholder");
-  const paragraphs = accumulated.split("¶NEW¶").map(p => p.trim()).filter(Boolean);
-  originalText.innerHTML = paragraphs.length
-    ? paragraphs.map(p => `<p>${escHtml(p)}</p>`).join("")
+  const paras = accumulated.split("¶NEW¶").map(p => p.trim()).filter(Boolean);
+  originalText.innerHTML = paras.length
+    ? paras.map(p => `<p>${escHtml(p)}</p>`).join("")
     : `<p>${escHtml(accumulated)}</p>`;
 }
 
-// Sync accumulated from contenteditable back to variable
 function syncFromEditable() {
-  // Grab all text content including paragraph breaks
   const paras = Array.from(originalText.querySelectorAll("p"));
-  if (paras.length) {
-    accumulated = paras.map(p => p.textContent).join("¶NEW¶") + " ";
-  } else {
-    accumulated = originalText.textContent;
-  }
+  accumulated = paras.length
+    ? paras.map(p => p.textContent).join("¶NEW¶") + " "
+    : originalText.textContent;
 }
 
-// contenteditable focus/blur
 originalText.addEventListener("focus", () => { isEditingOriginal = true; });
-originalText.addEventListener("blur",  () => {
-  isEditingOriginal = false;
-  syncFromEditable();
-});
+originalText.addEventListener("blur",  () => { isEditingOriginal = false; syncFromEditable(); });
 
 // ── Translate ─────────────────────────────────────────────────
 async function translate(text) {
@@ -157,19 +169,20 @@ async function translate(text) {
   translatedText.textContent = "";
   translatedText.classList.add("placeholder");
   ttsBtn.classList.remove("visible");
-  const lang = targetLang.value;
-  // Strip paragraph markers before sending to translate
+
+  const lang      = targetLang.value;
   const cleanText = text.replace(/¶NEW¶/g, "\n\n");
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${lang}&dt=t&q=${encodeURIComponent(cleanText)}`;
   try {
-    const res  = await fetch(url);
-    const data = await res.json();
+    const res    = await fetch(url);
+    const data   = await res.json();
     const result = data[0].map(s => s[0]).join("");
     lastTranslated = result;
     translatedText.textContent = result;
     translatedText.classList.remove("placeholder");
     ttsBtn.classList.add("visible");
-    if (toggleTTS.checked) autoSpeak(result);
+    // Schedule auto-speak with user-set delay
+    if (toggleTTS.checked) scheduleAutoSpeak(result);
   } catch {
     translatedText.textContent = "Terjemahan gagal. Cek koneksi internet.";
     translatedText.classList.add("placeholder");
@@ -183,13 +196,51 @@ function scheduleTranslate() {
   transTimeout = setTimeout(() => translate(accumulated.trim()), 800);
 }
 
+// ── TTS ───────────────────────────────────────────────────────
+const langMap = { id:"id-ID", ms:"ms-MY", jv:"jv-ID", su:"su-ID", "zh-CN":"zh-CN", ar:"ar-SA" };
+
+function speakText(text) {
+  if (!text) return;
+  const utt  = new SpeechSynthesisUtterance(text);
+  utt.lang   = langMap[targetLang.value] || "id-ID";
+  isSpeaking = true;
+  ttsBtn.innerHTML = '<i class="ti ti-player-pause"></i> Stop';
+  utt.onend  = () => { isSpeaking = false; ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar'; };
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utt);
+}
+
+function scheduleAutoSpeak(text) {
+  clearTimeout(ttsDelayTimer);
+  const delay = parseInt(ttsDelay.value) || 0;
+  ttsDelayTimer = setTimeout(() => {
+    if (isRecording) speakText(text); // only speak if still in reading session
+  }, delay);
+}
+
+ttsBtn.addEventListener("click", () => {
+  if (!lastTranslated) return;
+  if (isSpeaking) {
+    clearTimeout(ttsDelayTimer);
+    speechSynthesis.cancel();
+    isSpeaking = false;
+    ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar';
+    return;
+  }
+  speakText(lastTranslated);
+});
+
 // ── Auto save + reset per sentence ───────────────────────────
 async function handleSentenceEnd() {
+  if (sentenceQueue) return; // debounce
+  sentenceQueue = true;
+  setTimeout(() => { sentenceQueue = false; }, 1500);
+
   const orig  = accumulated.replace(/¶NEW¶/g, "\n\n").trim();
   const trans = lastTranslated.trim();
   if (!orig) return;
 
-  if (toggleAutoSave.checked && (orig || trans)) {
+  if (toggleAutoSave.checked) {
     setSyncStatus("syncing");
     try {
       await saveEntry({
@@ -200,22 +251,25 @@ async function handleSentenceEnd() {
         lang:       targetLang.options[targetLang.selectedIndex].text
       });
       setSyncStatus("ok");
-      // Brief toast
       saveToast.classList.add("show");
       setTimeout(() => saveToast.classList.remove("show"), 1500);
-    } catch { setSyncStatus("error"); }
+    } catch { setSyncStatus("error"); return; }
   }
 
   if (toggleAutoReset.checked) {
-    accumulated = ""; lastTranslated = "";
-    renderOriginal();
-    translatedText.textContent = "Terjemahan akan muncul di sini...";
-    translatedText.classList.add("placeholder");
-    ttsBtn.classList.remove("visible");
+    // Wait a beat so TTS can finish its current word before reset
+    setTimeout(() => {
+      accumulated    = "";
+      lastTranslated = "";
+      renderOriginal();
+      translatedText.textContent = "Terjemahan akan muncul di sini...";
+      translatedText.classList.add("placeholder");
+      ttsBtn.classList.remove("visible");
+    }, 400);
   }
 }
 
-// ── Silence timer → auto period after 3s ─────────────────────
+// ── Silence → auto period after 3s ───────────────────────────
 function resetSilenceTimer() {
   clearTimeout(silenceTimer);
   silenceTimer = setTimeout(() => {
@@ -223,7 +277,6 @@ function resetSilenceTimer() {
       accumulated = accumulated.trimEnd() + ". ";
       renderOriginal();
       scheduleTranslate();
-      // treat as sentence end
       setTimeout(handleSentenceEnd, 900);
     }
   }, 3000);
@@ -254,7 +307,7 @@ function startRecording() {
         }
         resetSilenceTimer();
         scheduleTranslate();
-        // Check if sentence ended naturally
+        // Trigger sentence-end handler when .!? detected
         if (SENTENCE_END.test(accumulated.replace(/¶NEW¶/g, ""))) {
           setTimeout(handleSentenceEnd, 900);
         }
@@ -262,10 +315,9 @@ function startRecording() {
         interim = t;
       }
     }
-    // Preview: accumulated + interim (don't overwrite editable if user is typing)
     if (!isEditingOriginal) {
       const preview = accumulated + interim;
-      const paras = preview.split("¶NEW¶").map(p => p.trim()).filter(Boolean);
+      const paras   = preview.split("¶NEW¶").map(p => p.trim()).filter(Boolean);
       originalText.innerHTML = paras.length
         ? paras.map(p => `<p>${escHtml(p)}</p>`).join("")
         : `<p>${escHtml(preview)}</p>`;
@@ -284,6 +336,7 @@ function startRecording() {
 function stopRecording() {
   isRecording = false;
   clearTimeout(silenceTimer);
+  clearTimeout(ttsDelayTimer);
   if (recognition) { recognition.onend = null; recognition.stop(); }
   micBtn.classList.remove("recording");
   statusText.textContent = "Selesai. Tekan lagi untuk melanjutkan.";
@@ -294,7 +347,7 @@ micBtn.addEventListener("click", () => { if (isRecording) stopRecording(); else 
 
 // ── Punctuation toolbar ───────────────────────────────────────
 document.querySelectorAll(".punct-btn").forEach(btn => {
-  if (btn.id === "btnParagraph") return; // handled separately
+  if (btn.id === "btnParagraph") return;
   btn.addEventListener("click", () => {
     accumulated = accumulated.trimEnd() + btn.dataset.insert;
     renderOriginal();
@@ -305,43 +358,16 @@ document.querySelectorAll(".punct-btn").forEach(btn => {
   });
 });
 
-// Paragraph button → real paragraph break
 btnParagraph.addEventListener("click", () => {
   accumulated = accumulated.trimEnd() + "¶NEW¶";
   renderOriginal();
   scheduleTranslate();
 });
 
-// ── TTS ───────────────────────────────────────────────────────
-const langMap = { id:"id-ID", ms:"ms-MY", jv:"jv-ID", su:"su-ID", "zh-CN":"zh-CN", ar:"ar-SA" };
-
-function speakText(text) {
-  if (!text) return;
-  const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = langMap[targetLang.value] || "id-ID";
-  isSpeaking = true;
-  ttsBtn.innerHTML = '<i class="ti ti-player-pause"></i> Stop';
-  utt.onend = () => { isSpeaking = false; ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar'; };
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utt);
-}
-
-function autoSpeak(text) {
-  if (isRecording && toggleTTS.checked) speakText(text);
-}
-
-ttsBtn.addEventListener("click", () => {
-  if (!lastTranslated) return;
-  if (isSpeaking) {
-    speechSynthesis.cancel(); isSpeaking = false;
-    ttsBtn.innerHTML = '<i class="ti ti-volume"></i> Putar'; return;
-  }
-  speakText(lastTranslated);
-});
-
 // ── Clear ─────────────────────────────────────────────────────
 clearBtn.addEventListener("click", () => {
   accumulated = ""; lastTranslated = "";
+  clearTimeout(ttsDelayTimer);
   renderOriginal();
   translatedText.textContent = "Terjemahan akan muncul di sini...";
   translatedText.classList.add("placeholder");
@@ -380,7 +406,7 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
-// ── Edit Modal (library) ──────────────────────────────────────
+// ── Edit Modal ────────────────────────────────────────────────
 let editingId = null;
 function openEditModal(entry) {
   editingId = entry.id;
@@ -413,7 +439,7 @@ async function renderLibrary(searchQ = "") {
     libContent.innerHTML = `<div class="lib-empty"><i class="ti ti-wifi-off"></i><p>Gagal memuat data</p><span>Cek koneksi internet lalu muat ulang</span></div>`;
     return;
   }
-  const q = searchQ.toLowerCase().trim();
+  const q        = searchQ.toLowerCase().trim();
   const filtered = q
     ? allEntries.filter(e =>
         (e.bookTitle||"").toLowerCase().includes(q) ||
