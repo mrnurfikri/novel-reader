@@ -1,6 +1,25 @@
 import { saveEntry, getAllEntries, updateEntry, deleteEntry, deleteBook } from "./firebase.js";
 
-// ── Elements ────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str || "")
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function highlight(text, q) {
+  if (!q) return escHtml(text);
+  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return escHtml(text).replace(new RegExp(`(${esc})`, "gi"), '<mark class="highlight">$1</mark>');
+}
+function groupBy(arr, key) {
+  return arr.reduce((map, item) => {
+    const k = item[key] || "Tanpa " + key;
+    if (!map[k]) map[k] = [];
+    map[k].push(item); return map;
+  }, {});
+}
+
+// ── Elements ──────────────────────────────────────────────────
 const micBtn         = document.getElementById("micBtn");
 const statusText     = document.getElementById("statusText");
 const originalText   = document.getElementById("originalText");
@@ -24,27 +43,27 @@ const editTranslated = document.getElementById("editTranslated");
 const modalClose     = document.getElementById("modalClose");
 const modalCancel    = document.getElementById("modalCancel");
 const modalSave      = document.getElementById("modalSave");
+const btnParagraph   = document.getElementById("btnParagraph");
 
-// ── Helpers (defined early, used throughout) ─────────────────
-function escHtml(str) {
-  return String(str || "")
-    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
-}
-function highlight(text, q) {
-  if (!q) return escHtml(text);
-  const esc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return escHtml(text).replace(new RegExp(`(${esc})`, "gi"), '<mark class="highlight">$1</mark>');
-}
-function groupBy(arr, key) {
-  return arr.reduce((map, item) => {
-    const k = item[key] || "Tanpa " + key;
-    if (!map[k]) map[k] = [];
-    map[k].push(item); return map;
-  }, {});
-}
+// ── Toggles ───────────────────────────────────────────────────
+const toggleTTS       = document.getElementById("toggleTTS");
+const toggleAutoSave  = document.getElementById("toggleAutoSave");
+const toggleAutoReset = document.getElementById("toggleAutoReset");
 
-// ── Nav ─────────────────────────────────────────────────────
+// Persist toggle states
+function loadToggles() {
+  ["toggleTTS","toggleAutoSave","toggleAutoReset"].forEach(id => {
+    const saved = localStorage.getItem(id);
+    if (saved !== null) document.getElementById(id).checked = saved === "true";
+  });
+}
+function saveToggle(id, val) { localStorage.setItem(id, val); }
+[toggleTTS, toggleAutoSave, toggleAutoReset].forEach(el => {
+  el.addEventListener("change", () => saveToggle(el.id, el.checked));
+});
+loadToggles();
+
+// ── Nav ───────────────────────────────────────────────────────
 document.querySelectorAll(".nav-tab").forEach(tab => {
   tab.addEventListener("click", () => {
     document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
@@ -55,19 +74,23 @@ document.querySelectorAll(".nav-tab").forEach(tab => {
   });
 });
 
-// ── Speech Recognition ───────────────────────────────────────
+// ── Speech Recognition ────────────────────────────────────────
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SR) browserWarn.style.display = "flex";
 
 let recognition  = null;
 let isRecording  = false;
-let accumulated  = "";   // final clean text
+let accumulated  = "";
 let transTimeout = null;
 let isSpeaking   = false;
 let lastTranslated = "";
 let silenceTimer = null;
+let isEditingOriginal = false;
 
-// Punctuation voice commands
+// Sentence-ending punctuation detection
+const SENTENCE_END = /[.!?。]\s*$/;
+
+// Voice punctuation commands
 const PUNCT_COMMANDS = {
   "comma"           : ", ",
   "period"          : ". ",
@@ -81,9 +104,9 @@ const PUNCT_COMMANDS = {
   "open quote"      : "\u201c",
   "close quote"     : "\u201d ",
   "end quote"       : "\u201d ",
-  "new paragraph"   : "\n\n",
-  "new line"        : "\n\n",
-  "paragraph"       : "\n\n",
+  "new paragraph"   : "¶NEW¶",
+  "new line"        : "¶NEW¶",
+  "paragraph"       : "¶NEW¶",
 };
 
 function applyPunctCommand(transcript) {
@@ -94,21 +117,40 @@ function applyPunctCommand(transcript) {
   return { isPunct: false };
 }
 
+// ── Render original text as real paragraphs ───────────────────
 function renderOriginal() {
+  if (isEditingOriginal) return; // don't overwrite while user is typing
   if (!accumulated) {
     originalText.innerHTML = "Teks yang kamu baca akan muncul di sini...";
     originalText.classList.add("placeholder");
     return;
   }
   originalText.classList.remove("placeholder");
-  // Split on double newline → real <p> paragraphs
-  const paragraphs = accumulated.split(/\n\n+/);
-  originalText.innerHTML = paragraphs
-    .map(p => `<p>${escHtml(p.trim())}</p>`)
-    .join("");
+  const paragraphs = accumulated.split("¶NEW¶").map(p => p.trim()).filter(Boolean);
+  originalText.innerHTML = paragraphs.length
+    ? paragraphs.map(p => `<p>${escHtml(p)}</p>`).join("")
+    : `<p>${escHtml(accumulated)}</p>`;
 }
 
-// ── Translate ────────────────────────────────────────────────
+// Sync accumulated from contenteditable back to variable
+function syncFromEditable() {
+  // Grab all text content including paragraph breaks
+  const paras = Array.from(originalText.querySelectorAll("p"));
+  if (paras.length) {
+    accumulated = paras.map(p => p.textContent).join("¶NEW¶") + " ";
+  } else {
+    accumulated = originalText.textContent;
+  }
+}
+
+// contenteditable focus/blur
+originalText.addEventListener("focus", () => { isEditingOriginal = true; });
+originalText.addEventListener("blur",  () => {
+  isEditingOriginal = false;
+  syncFromEditable();
+});
+
+// ── Translate ─────────────────────────────────────────────────
 async function translate(text) {
   if (!text.trim()) return;
   loadingBar.classList.add("active");
@@ -116,7 +158,9 @@ async function translate(text) {
   translatedText.classList.add("placeholder");
   ttsBtn.classList.remove("visible");
   const lang = targetLang.value;
-  const url  = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${lang}&dt=t&q=${encodeURIComponent(text)}`;
+  // Strip paragraph markers before sending to translate
+  const cleanText = text.replace(/¶NEW¶/g, "\n\n");
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${lang}&dt=t&q=${encodeURIComponent(cleanText)}`;
   try {
     const res  = await fetch(url);
     const data = await res.json();
@@ -125,8 +169,7 @@ async function translate(text) {
     translatedText.textContent = result;
     translatedText.classList.remove("placeholder");
     ttsBtn.classList.add("visible");
-    // Auto-speak translation
-    autoSpeak(result);
+    if (toggleTTS.checked) autoSpeak(result);
   } catch {
     translatedText.textContent = "Terjemahan gagal. Cek koneksi internet.";
     translatedText.classList.add("placeholder");
@@ -137,23 +180,56 @@ async function translate(text) {
 
 function scheduleTranslate() {
   clearTimeout(transTimeout);
-  transTimeout = setTimeout(() => translate(accumulated.trim()), 1000);
+  transTimeout = setTimeout(() => translate(accumulated.trim()), 800);
 }
 
-// ── Silence detection (auto period after 3s pause) ──────────
+// ── Auto save + reset per sentence ───────────────────────────
+async function handleSentenceEnd() {
+  const orig  = accumulated.replace(/¶NEW¶/g, "\n\n").trim();
+  const trans = lastTranslated.trim();
+  if (!orig) return;
+
+  if (toggleAutoSave.checked && (orig || trans)) {
+    setSyncStatus("syncing");
+    try {
+      await saveEntry({
+        bookTitle:  bookTitleInput.value.trim() || "Tanpa Judul",
+        chapter:    chapterInput.value.trim()   || "Tanpa Bab",
+        original:   orig,
+        translated: trans,
+        lang:       targetLang.options[targetLang.selectedIndex].text
+      });
+      setSyncStatus("ok");
+      // Brief toast
+      saveToast.classList.add("show");
+      setTimeout(() => saveToast.classList.remove("show"), 1500);
+    } catch { setSyncStatus("error"); }
+  }
+
+  if (toggleAutoReset.checked) {
+    accumulated = ""; lastTranslated = "";
+    renderOriginal();
+    translatedText.textContent = "Terjemahan akan muncul di sini...";
+    translatedText.classList.add("placeholder");
+    ttsBtn.classList.remove("visible");
+  }
+}
+
+// ── Silence timer → auto period after 3s ─────────────────────
 function resetSilenceTimer() {
   clearTimeout(silenceTimer);
   silenceTimer = setTimeout(() => {
-    // Add period if text doesn't already end with punctuation
-    if (accumulated && !/[.,!?:;\n\u201d]$/.test(accumulated.trim())) {
+    if (accumulated && !/[.,!?:;\n\u201d¶]$/.test(accumulated.trimEnd())) {
       accumulated = accumulated.trimEnd() + ". ";
       renderOriginal();
       scheduleTranslate();
+      // treat as sentence end
+      setTimeout(handleSentenceEnd, 900);
     }
   }, 3000);
 }
 
-// ── Recording ────────────────────────────────────────────────
+// ── Recording ─────────────────────────────────────────────────
 function startRecording() {
   if (!SR) return;
   recognition = new SR();
@@ -172,20 +248,29 @@ function startRecording() {
       if (e.results[i].isFinal) {
         const { isPunct, symbol } = applyPunctCommand(t);
         if (isPunct) {
-          // Remove trailing space then insert symbol
           accumulated = accumulated.trimEnd() + symbol;
         } else {
           accumulated += t + " ";
         }
         resetSilenceTimer();
         scheduleTranslate();
+        // Check if sentence ended naturally
+        if (SENTENCE_END.test(accumulated.replace(/¶NEW¶/g, ""))) {
+          setTimeout(handleSentenceEnd, 900);
+        }
       } else {
         interim = t;
       }
     }
-    // Show accumulated + interim preview
-    originalText.textContent = accumulated + interim;
-    originalText.classList.remove("placeholder");
+    // Preview: accumulated + interim (don't overwrite editable if user is typing)
+    if (!isEditingOriginal) {
+      const preview = accumulated + interim;
+      const paras = preview.split("¶NEW¶").map(p => p.trim()).filter(Boolean);
+      originalText.innerHTML = paras.length
+        ? paras.map(p => `<p>${escHtml(p)}</p>`).join("")
+        : `<p>${escHtml(preview)}</p>`;
+      originalText.classList.remove("placeholder");
+    }
   };
 
   recognition.onerror = e => {
@@ -207,17 +292,27 @@ function stopRecording() {
 
 micBtn.addEventListener("click", () => { if (isRecording) stopRecording(); else startRecording(); });
 
-// ── Punctuation toolbar ──────────────────────────────────────
+// ── Punctuation toolbar ───────────────────────────────────────
 document.querySelectorAll(".punct-btn").forEach(btn => {
+  if (btn.id === "btnParagraph") return; // handled separately
   btn.addEventListener("click", () => {
-    const insert = btn.dataset.insert;
-    accumulated = accumulated.trimEnd() + insert;
+    accumulated = accumulated.trimEnd() + btn.dataset.insert;
     renderOriginal();
     scheduleTranslate();
+    if (SENTENCE_END.test(accumulated.replace(/¶NEW¶/g, ""))) {
+      setTimeout(handleSentenceEnd, 900);
+    }
   });
 });
 
-// ── TTS ─────────────────────────────────────────────────────
+// Paragraph button → real paragraph break
+btnParagraph.addEventListener("click", () => {
+  accumulated = accumulated.trimEnd() + "¶NEW¶";
+  renderOriginal();
+  scheduleTranslate();
+});
+
+// ── TTS ───────────────────────────────────────────────────────
 const langMap = { id:"id-ID", ms:"ms-MY", jv:"jv-ID", su:"su-ID", "zh-CN":"zh-CN", ar:"ar-SA" };
 
 function speakText(text) {
@@ -231,9 +326,8 @@ function speakText(text) {
   speechSynthesis.speak(utt);
 }
 
-// Auto-speak: only fire when mic is active (don't interrupt manual edits)
 function autoSpeak(text) {
-  if (isRecording) speakText(text);
+  if (isRecording && toggleTTS.checked) speakText(text);
 }
 
 ttsBtn.addEventListener("click", () => {
@@ -245,7 +339,7 @@ ttsBtn.addEventListener("click", () => {
   speakText(lastTranslated);
 });
 
-// ── Clear ────────────────────────────────────────────────────
+// ── Clear ─────────────────────────────────────────────────────
 clearBtn.addEventListener("click", () => {
   accumulated = ""; lastTranslated = "";
   renderOriginal();
@@ -255,17 +349,18 @@ clearBtn.addEventListener("click", () => {
   speechSynthesis.cancel(); isSpeaking = false;
 });
 
-// ── Sync status ──────────────────────────────────────────────
+// ── Sync status ───────────────────────────────────────────────
 function setSyncStatus(state) {
-  const icons  = { syncing: "ti-loader-2", ok: "ti-cloud-check", error: "ti-cloud-x" };
-  const labels = { syncing: "Menyimpan...", ok: "Tersinkron", error: "Gagal sync" };
+  const icons  = { syncing:"ti-loader-2", ok:"ti-cloud-check", error:"ti-cloud-x" };
+  const labels = { syncing:"Menyimpan...", ok:"Tersinkron", error:"Gagal sync" };
   syncStatus.className = "sync-status " + state;
   syncStatus.innerHTML = `<i class="ti ${icons[state]}"></i><span>${labels[state]}</span>`;
 }
 
-// ── Save ─────────────────────────────────────────────────────
+// ── Manual save ───────────────────────────────────────────────
 saveBtn.addEventListener("click", async () => {
-  const orig  = accumulated.trim();
+  syncFromEditable();
+  const orig  = accumulated.replace(/¶NEW¶/g, "\n\n").trim();
   const trans = lastTranslated.trim();
   if (!orig && !trans) { alert("Belum ada teks! Baca novel dulu."); return; }
   setSyncStatus("syncing");
@@ -273,8 +368,7 @@ saveBtn.addEventListener("click", async () => {
     await saveEntry({
       bookTitle:  bookTitleInput.value.trim() || "Tanpa Judul",
       chapter:    chapterInput.value.trim()   || "Tanpa Bab",
-      original:   orig,
-      translated: trans,
+      original:   orig, translated: trans,
       lang:       targetLang.options[targetLang.selectedIndex].text
     });
     setSyncStatus("ok");
@@ -286,25 +380,18 @@ saveBtn.addEventListener("click", async () => {
   }
 });
 
-
-
-// ── Edit Modal ───────────────────────────────────────────────
+// ── Edit Modal (library) ──────────────────────────────────────
 let editingId = null;
-
 function openEditModal(entry) {
   editingId = entry.id;
   editOriginal.value   = entry.original   || "";
   editTranslated.value = entry.translated || "";
   editModal.classList.add("open");
 }
-function closeEditModal() {
-  editModal.classList.remove("open");
-  editingId = null;
-}
+function closeEditModal() { editModal.classList.remove("open"); editingId = null; }
 modalClose.addEventListener("click", closeEditModal);
 modalCancel.addEventListener("click", closeEditModal);
 editModal.addEventListener("click", e => { if (e.target === editModal) closeEditModal(); });
-
 modalSave.addEventListener("click", async () => {
   if (!editingId) return;
   setSyncStatus("syncing");
@@ -313,13 +400,10 @@ modalSave.addEventListener("click", async () => {
     setSyncStatus("ok");
     closeEditModal();
     renderLibrary(searchInput.value);
-  } catch (err) {
-    setSyncStatus("error");
-    alert("Gagal menyimpan: " + err.message);
-  }
+  } catch (err) { setSyncStatus("error"); alert("Gagal menyimpan: " + err.message); }
 });
 
-// ── Library ──────────────────────────────────────────────────
+// ── Library ───────────────────────────────────────────────────
 let allEntries = [];
 
 async function renderLibrary(searchQ = "") {
@@ -329,7 +413,6 @@ async function renderLibrary(searchQ = "") {
     libContent.innerHTML = `<div class="lib-empty"><i class="ti ti-wifi-off"></i><p>Gagal memuat data</p><span>Cek koneksi internet lalu muat ulang</span></div>`;
     return;
   }
-
   const q = searchQ.toLowerCase().trim();
   const filtered = q
     ? allEntries.filter(e =>
@@ -356,9 +439,8 @@ async function renderLibrary(searchQ = "") {
   Object.entries(byBook).forEach(([bookTitle, bookEntries]) => {
     const card = document.createElement("div");
     card.className = "book-card";
-
-    const last    = bookEntries[0];
-    const dateStr = new Date(last.createdAt).toLocaleString("id-ID", { dateStyle:"medium", timeStyle:"short" });
+    const last      = bookEntries[0];
+    const dateStr   = new Date(last.createdAt).toLocaleString("id-ID", { dateStyle:"medium", timeStyle:"short" });
     const byChapter = groupBy(bookEntries, "chapter");
     const chapCount = Object.keys(byChapter).length;
 
@@ -408,28 +490,20 @@ async function renderLibrary(searchQ = "") {
                 </div>`;
               }).join("")}
             </div>
-          </div>`
-        ).join("")}
+          </div>`).join("")}
       </div>`;
 
-    // Toggle book
     card.querySelector(".book-card-header").addEventListener("click", () => card.classList.toggle("open"));
-
-    // Toggle chapters
     card.querySelectorAll(".chapter-header").forEach(ch => {
       ch.addEventListener("click", () => ch.closest(".chapter-block").classList.toggle("open"));
     });
-
-    // Edit entry
     card.querySelectorAll(".entry-edit-btn").forEach(btn => {
-      btn.addEventListener("click", async e => {
+      btn.addEventListener("click", e => {
         e.stopPropagation();
         const entry = allEntries.find(en => en.id === btn.dataset.id);
         if (entry) openEditModal(entry);
       });
     });
-
-    // Delete entry
     card.querySelectorAll(".entry-del-btn").forEach(btn => {
       btn.addEventListener("click", async e => {
         e.stopPropagation();
@@ -439,8 +513,6 @@ async function renderLibrary(searchQ = "") {
         catch { setSyncStatus("error"); }
       });
     });
-
-    // Delete book
     card.querySelector(".book-del-btn").addEventListener("click", async e => {
       e.stopPropagation();
       if (!confirm(`Hapus semua catatan untuk "${bookTitle}"?`)) return;
@@ -448,7 +520,6 @@ async function renderLibrary(searchQ = "") {
       try { await deleteBook(bookTitle); setSyncStatus("ok"); renderLibrary(searchInput.value); }
       catch { setSyncStatus("error"); }
     });
-
     list.appendChild(card);
   });
 
@@ -456,7 +527,6 @@ async function renderLibrary(searchQ = "") {
   libContent.appendChild(list);
 }
 
-// Search
 let searchTimeout;
 searchInput.addEventListener("input", () => {
   clearTimeout(searchTimeout);
