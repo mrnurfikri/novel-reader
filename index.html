@@ -18,9 +18,73 @@
         <button class="nav-tab active" data-page="reader"><i class="ti ti-microphone"></i><span>Baca</span></button>
         <button class="nav-tab" data-page="library"><i class="ti ti-books"></i><span>Perpustakaan</span></button>
       </div>
-      <div class="sync-status" id="syncStatus"><i class="ti ti-cloud-check"></i><span>Tersinkron</span></div>
+      <div class="nav-right">
+        <div class="sync-status" id="syncStatus"><i class="ti ti-cloud-check"></i><span>Tersinkron</span></div>
+        <!-- Settings gear -->
+        <button class="settings-btn" id="settingsBtn" aria-label="Pengaturan">
+          <i class="ti ti-settings"></i>
+        </button>
+      </div>
     </div>
   </nav>
+
+  <!-- SETTINGS DROPDOWN -->
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-inner">
+      <div class="settings-title">Pengaturan</div>
+
+      <div class="setting-group">
+        <div class="setting-group-label">Suara</div>
+        <label class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name"><i class="ti ti-volume"></i> Auto baca terjemahan</span>
+            <span class="setting-desc">Terjemahan dibacakan otomatis setelah muncul</span>
+          </div>
+          <div class="toggle-switch">
+            <input type="checkbox" id="toggleTTS" checked />
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
+        <label class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name"><i class="ti ti-clock"></i> Jeda sebelum dibaca</span>
+            <span class="setting-desc">Berapa detik tunggu setelah terjemahan muncul</span>
+          </div>
+          <select id="ttsDelay" class="setting-select">
+            <option value="0">Langsung</option>
+            <option value="3000">3 detik</option>
+            <option value="5000">5 detik</option>
+            <option value="10000" selected>10 detik</option>
+            <option value="15000">15 detik</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <div class="setting-group-label">Auto simpan &amp; reset</div>
+        <label class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name"><i class="ti ti-device-floppy"></i> Auto simpan per kalimat</span>
+            <span class="setting-desc">Simpan otomatis ke perpustakaan setiap kalimat selesai (.!?)</span>
+          </div>
+          <div class="toggle-switch">
+            <input type="checkbox" id="toggleAutoSave" checked />
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
+        <label class="setting-row">
+          <div class="setting-info">
+            <span class="setting-name"><i class="ti ti-refresh"></i> Auto reset per kalimat</span>
+            <span class="setting-desc">Bersihkan panel otomatis setelah disimpan, siap untuk kalimat berikutnya</span>
+          </div>
+          <div class="toggle-switch">
+            <input type="checkbox" id="toggleAutoReset" checked />
+            <span class="toggle-slider"></span>
+          </div>
+        </label>
+      </div>
+    </div>
+  </div>
 
   <!-- READER PAGE -->
   <div class="page active" id="page-reader">
@@ -66,31 +130,6 @@
         </div>
       </div>
 
-      <!-- Toggle switches -->
-      <div class="toggles-bar">
-        <label class="toggle-item">
-          <span class="toggle-label"><i class="ti ti-volume"></i> Auto baca terjemahan</span>
-          <div class="toggle-switch">
-            <input type="checkbox" id="toggleTTS" checked />
-            <span class="toggle-slider"></span>
-          </div>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-label"><i class="ti ti-device-floppy"></i> Auto simpan per kalimat</span>
-          <div class="toggle-switch">
-            <input type="checkbox" id="toggleAutoSave" checked />
-            <span class="toggle-slider"></span>
-          </div>
-        </label>
-        <label class="toggle-item">
-          <span class="toggle-label"><i class="ti ti-refresh"></i> Auto reset per kalimat</span>
-          <div class="toggle-switch">
-            <input type="checkbox" id="toggleAutoReset" checked />
-            <span class="toggle-slider"></span>
-          </div>
-        </label>
-      </div>
-
       <!-- Mic -->
       <div class="mic-area">
         <button class="mic-btn" id="micBtn" aria-label="Mulai merekam">
@@ -119,9 +158,8 @@
         <div class="panel panel-en">
           <div class="panel-label">
             <span><i class="ti ti-book"></i> Teks Inggris</span>
-            <span class="panel-edit-hint">klik teks untuk edit</span>
+            <span class="panel-edit-hint">klik untuk edit</span>
           </div>
-          <!-- contenteditable so user can click & edit directly -->
           <div class="panel-text placeholder" id="originalText" contenteditable="true" spellcheck="false">Teks yang kamu baca akan muncul di sini...</div>
         </div>
         <div class="panel panel-id">
@@ -155,7 +193,7 @@
     </div>
   </div>
 
-  <!-- EDIT MODAL (library) -->
+  <!-- EDIT MODAL -->
   <div class="modal-overlay" id="editModal">
     <div class="modal">
       <div class="modal-header">
